@@ -296,7 +296,7 @@ class MQTTHandler:
             logging.info(f"[PROCESS]   - {key}: {value}")
         
         # Escribir en Google Sheets
-        self.sheets_handler.write_data(processed_data)
+        self.sheets_handler.write_data(processed_data, probabilities)
         
         # Limpiar buffer para siguiente conjunto de datos
         logging.info("[PROCESS] Limpiando buffer de datos...")

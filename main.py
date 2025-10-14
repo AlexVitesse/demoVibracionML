@@ -33,13 +33,6 @@ def main():
     print("=" * 60)
     logging.info("[APP] Iniciando aplicacion...")
     
-    # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
-    logging.info("\n--- Configurando Google Sheets ---")
-    sheets_handler = SheetsHandler()
-    if not sheets_handler.setup():
-        logging.error("[APP] ERROR: No se pudo conectar con Google Sheets. Saliendo...")
-        return  # Terminar ejecución si no hay conexión a Sheets
-    
     # --- CONFIGURACIÓN DEL MODELO DE MACHINE LEARNING ---
     logging.info("\n--- Configurando Modelo de Machine Learning ---")
     ml_predictor = MLPredictor(
@@ -54,6 +47,13 @@ def main():
         logging.warning("[APP] ADVERTENCIA: No se pudo cargar el modelo ML")
         logging.warning("[APP] El sistema continuará sin predicciones")
         ml_predictor = None  # Desactivar predictor si no se puede cargar
+
+    # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
+    logging.info("\n--- Configurando Google Sheets ---")
+    sheets_handler = SheetsHandler(ml_predictor)
+    if not sheets_handler.setup():
+        logging.error("[APP] ERROR: No se pudo conectar con Google Sheets. Saliendo...")
+        return  # Terminar ejecución si no hay conexión a Sheets
     
     # --- CONFIGURACIÓN DEL CLIENTE MQTT ---
     logging.info("\n--- Configurando Cliente MQTT ---")

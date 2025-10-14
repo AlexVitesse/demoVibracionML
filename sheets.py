@@ -22,10 +22,14 @@ class SheetsHandler:
         last_timestamp_written: Último timestamp escrito (para detección de duplicados)
     """
     
-    def __init__(self):
+    def __init__(self, ml_predictor=None):
         """Inicializa el handler de Google Sheets"""
         self.sheet_service = None  # Servicio de Google Sheets (se inicializa en setup())
         self.last_timestamp_written = None  # Último timestamp escrito para control de duplicados
+        self.ml_predictor = ml_predictor
+        self.ml_class_names = []
+        if self.ml_predictor and self.ml_predictor.label_encoder:
+            self.ml_class_names = list(self.ml_predictor.label_encoder.classes_)
     
     def setup(self):
         """
@@ -33,40 +37,55 @@ class SheetsHandler:
         
         Returns:
             bool: True si la configuración fue exitosa, False en caso contrario
-            
-        Steps:
-            1. Carga credenciales desde archivo JSON
-            2. Construye el servicio de Google Sheets
-            3. Lee el último timestamp existente
         """
         try:
             logging.info("[SHEETS] Cargando credenciales desde key.json...")
-            # Cargar credenciales de Service Account desde archivo JSON
             creds = service_account.Credentials.from_service_account_file(KEY, scopes=SCOPES)
             logging.info(f"[SHEETS] Service Account: {creds.service_account_email}")
             
             logging.info("[SHEETS] Construyendo servicio de Google Sheets...")
-            # Construir el cliente de Google Sheets API v4
             service = build('sheets', 'v4', credentials=creds)
-            self.sheet_service = service.spreadsheets()  # Servicio para operaciones con hojas
+            self.sheet_service = service.spreadsheets()
             
             logging.info("[SHEETS] Conexion establecida exitosamente")
-            logging.info(f"[SHEETS] Spreadsheet ID: {SPREADSHEET_ID}")
-            logging.info(f"[SHEETS] Hoja: {SHEET_NAME}")
-            
-            # Leer el último timestamp de la hoja para control de duplicados
+            self._update_headers()
             self._read_last_timestamp()
             
             return True
             
         except FileNotFoundError:
-            logging.error("[SHEETS] ERROR: Archivo key.json no encontrado en el directorio actual")
-            logging.error("[SHEETS] Asegúrate de que el archivo key.json esté en el mismo directorio")
+            logging.error("[SHEETS] ERROR: Archivo key.json no encontrado")
             return False
         except Exception as e:
             logging.error(f"[SHEETS] ERROR: No se pudo conectar con Google Sheets: {e}")
-            logging.exception("Detalles del error:")
             return False
+
+    def _update_headers(self):
+        """Escribe/actualiza los encabezados en la primera fila de la hoja."""
+        try:
+            logging.info("[SHEETS] Actualizando encabezados...")
+            base_headers = [
+                'Date', 'Timestamp', 'CycleNumber', 'FillPercentage', 
+                'Pressure', 'Temperature', 'Failure', 'Output'
+            ]
+            
+            # Añadir encabezados de probabilidades
+            if self.ml_class_names:
+                headers = base_headers + [f'Prob_{name}' for name in self.ml_class_names]
+            else:
+                headers = base_headers
+
+            body = {'values': [headers]}
+            self.sheet_service.values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f'{SHEET_NAME}!A1',
+                valueInputOption='RAW',
+                body=body
+            ).execute()
+            logging.info("[SHEETS] Encabezados actualizados exitosamente.")
+
+        except Exception as e:
+            logging.error(f"[SHEETS] ERROR: No se pudo actualizar los encabezados: {e}")
     
     def _read_last_timestamp(self):
         """
@@ -103,59 +122,56 @@ class SheetsHandler:
             logging.warning(f"[SHEETS] No se pudo leer ultimo timestamp: {e}")
             self.last_timestamp_written = None
     
-    def write_data(self, data):
+    def write_data(self, data, probabilities=None):
         """
         Escribe los datos procesados en Google Sheets
         
         Args:
-            data (dict): Diccionario con los datos a escribir. Debe contener:
-                - date: Fecha formateada
-                - timestamp: Timestamp en milisegundos
-                - cycle_number: Número de ciclo
-                - fill_percentage: Porcentaje de llenado
-                - pressure: Presión
-                - temperature: Temperatura
-                - failure: Código de falla
-                - output: Predicción ML o estado
+            data (dict): Diccionario con los datos a escribir.
+            probabilities (dict): Diccionario con las probabilidades de predicción.
         
         Returns:
             bool: True si la escritura fue exitosa, False en caso contrario
         """
         if not self.sheet_service:
             logging.error("[SHEETS] ERROR: No hay servicio de sheets inicializado")
-            logging.error("[SHEETS] Ejecuta setup() primero")
             return False
         
         try:
             logging.info("[SHEETS] Preparando datos para escribir...")
-            logging.debug(f"Datos a escribir: {data}")
             
-            # Estructurar datos en el orden de columnas esperado:
-            # A: Date, B: Timestamp, C: CycleNumber, D: FillPercentage, 
-            # E: Pressure, F: Temperature, G: Failure, H: Output
-            values = [[
-                data['date'],           # Columna A - Fecha formateada
-                data['timestamp'],      # Columna B - Timestamp en ms
-                data['cycle_number'],   # Columna C - Número de ciclo
-                data['fill_percentage'], # Columna D - Porcentaje de llenado
-                data['pressure'],       # Columna E - Presión
-                data['temperature'],    # Columna F - Temperatura
-                data['failure'],        # Columna G - Código de falla
-                data['output']          # Columna H - Predicción ML/Estado
-            ]]
+            # Estructurar datos base
+            row_values = [
+                data.get('date', ''),
+                data.get('timestamp', 0),
+                data.get('cycle_number', 0),
+                data.get('fill_percentage', 0),
+                data.get('pressure', 0),
+                data.get('temperature', 0),
+                data.get('failure', 0),
+                data.get('output', 'N/A')
+            ]
             
-            # Estructura del cuerpo para la API
-            body = {
-                'values': values  # Datos a escribir
-            }
+            # Añadir probabilidades si están disponibles
+            if probabilities and self.ml_class_names:
+                for class_name in self.ml_class_names:
+                    prob = probabilities.get(class_name, 0.0)
+                    row_values.append(f"{prob * 100:.2f}%")
             
-            logging.info("[SHEETS] Enviando datos a Google Sheets...")
-            # Ejecutar operación de append (agregar fila al final)
+            values = [row_values]
+            body = {'values': values}
+            
+            # Determinar el rango dinámicamente
+            num_columns = len(row_values)
+            end_column = chr(ord('A') + num_columns - 1)
+            sheet_range = f'{SHEET_NAME}!A1:{end_column}1'
+            
+            logging.info(f"[SHEETS] Enviando datos a Google Sheets en rango {sheet_range}...")
             result = self.sheet_service.values().append(
-                spreadsheetId=SPREADSHEET_ID,      # ID de la hoja
-                range=f'{SHEET_NAME}!A1:H1',       # Rango base (se auto-expande)
-                valueInputOption='USER_ENTERED',   # Procesar datos como si usuario los escribiera
-                body=body                          # Datos a escribir
+                spreadsheetId=SPREADSHEET_ID,
+                range=sheet_range,
+                valueInputOption='USER_ENTERED',
+                body=body
             ).execute()
             
             # Obtener estadísticas de la operación
