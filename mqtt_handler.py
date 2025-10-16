@@ -7,10 +7,15 @@ import paho.mqtt.client as mqtt
 import json
 import logging
 from datetime import datetime, timezone, timedelta
+from ubidots import post_prediction
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configuración de Ubidots - Credenciales y endpoints
-UBIDOTS_TOKEN = "BBUS-spUinnL0HcIkNHzDhvDnLk5tTMhKDe"  # Token de autenticación
-DEVICE_LABEL = "pt_space"  # Identificador del dispositivo en Ubidots
+UBIDOTS_TOKEN = os.getenv("UBIDOTS_TOKEN")  # Token de autenticación
+DEVICE_LABEL = os.getenv("DEVICE_LABEL")  # Identificador del dispositivo en Ubidots
 BROKER = "industrial.api.ubidots.com"  # Servidor MQTT de Ubidots
 PORT = 1883  # Puerto MQTT estándar
 TOPIC = f"/v1.6/devices/{DEVICE_LABEL}"  # Tópico base para el dispositivo
@@ -282,6 +287,7 @@ class MQTTHandler:
                 
                 # Agregar la predicción al output
                 processed_data['output'] = prediction
+                post_prediction(prediction)  # Enviar predicción a Ubidots
                 logging.info(f"[PROCESS] Predicción agregada: {prediction} (Confianza: {confidence*100:.2f}%)")
                 
             except Exception as e:

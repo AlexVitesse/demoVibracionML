@@ -6,11 +6,15 @@ Gestiona la conexión y operaciones con Google Sheets API
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import logging
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configuración de Google Sheets API
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']  # Permisos para leer/escribir hojas de cálculo
 KEY = 'key.json'  # Archivo de credenciales de Service Account
-SPREADSHEET_ID = "18nhbg8wQWJes3ItBfrOi3Qtaw5cchrpmELY_oVoisgY"  # ID único de la hoja de cálculo
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # ID único de la hoja de cálculo
 SHEET_NAME = "Hoja 1"  # Nombre de la pestaña dentro de la hoja
 
 class SheetsHandler:
